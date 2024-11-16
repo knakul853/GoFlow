@@ -31,6 +31,7 @@ const App: React.FC = () => {
     // Stream goroutines
     const goroutineStream = grpcService.streamGoroutines(
       (data) => {
+        console.log('Received goroutine data:', data);
         setGoroutines((prev) => {
           const updated = [...prev];
           const index = updated.findIndex((g) => g.id === data.getId());

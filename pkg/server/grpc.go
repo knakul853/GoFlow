@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"sync"
+	"strings"
 	"time"
 
 	"github.com/knakul853/goflow/api/proto"
@@ -55,16 +56,19 @@ func NewGoFlowServer(gt *runtime.GoroutineTracker, cm *runtime.ChannelMonitor, d
 
 // StreamGoroutines implements the StreamGoroutines RPC method
 func (s *GoFlowServer) StreamGoroutines(req *proto.StreamRequest, stream proto.GoFlowService_StreamGoroutinesServer) error {
+	fmt.Printf("[Server] Starting goroutine stream for new client\n")
 	updates := make(chan interface{}, 100)
-	clientID := time.Now().String() // Simple unique ID
+	clientID := time.Now().String()
 
 	// Register client
 	s.clientsMu.Lock()
 	s.clients["goroutine_"+clientID] = append(s.clients["goroutine_"+clientID], updates)
 	s.clientsMu.Unlock()
 
+	fmt.Printf("[Server] Client registered with ID: goroutine_%s\n", clientID)
+
 	defer func() {
-		// Cleanup on disconnect
+		fmt.Printf("[Server] Cleaning up goroutine stream for client: %s\n", clientID)
 		s.clientsMu.Lock()
 		delete(s.clients, "goroutine_"+clientID)
 		s.clientsMu.Unlock()
@@ -72,7 +76,10 @@ func (s *GoFlowServer) StreamGoroutines(req *proto.StreamRequest, stream proto.G
 	}()
 
 	// Send initial state
-	for _, info := range s.goroutineTracker.GetAllGoroutines() {
+	initialGoroutines := s.goroutineTracker.GetAllGoroutines()
+	fmt.Printf("[Server] Sending initial state: %d goroutines\n", len(initialGoroutines))
+	
+	for _, info := range initialGoroutines {
 		update := &proto.GoroutineUpdate{
 			Id:           info.ID,
 			State:        info.State,
@@ -81,6 +88,8 @@ func (s *GoFlowServer) StreamGoroutines(req *proto.StreamRequest, stream proto.G
 			ParentId:     info.ParentID,
 			Stack:        info.Stack,
 		}
+		fmt.Printf("[Server] Sending goroutine update - ID: %d, Function: %s, State: %s\n", 
+			info.ID, info.Function, info.State)
 		if err := stream.Send(update); err != nil {
 			return s.handleError(err, "Failed to send goroutine update")
 		}
@@ -97,6 +106,8 @@ func (s *GoFlowServer) StreamGoroutines(req *proto.StreamRequest, stream proto.G
 				ParentId:     info.ParentID,
 				Stack:        info.Stack,
 			}
+			fmt.Printf("[Server] Streaming goroutine update - ID: %d, Function: %s, State: %s\n", 
+				info.ID, info.Function, info.State)
 			if err := stream.Send(protoUpdate); err != nil {
 				return s.handleError(err, "Failed to send goroutine update")
 			}
@@ -108,6 +119,7 @@ func (s *GoFlowServer) StreamGoroutines(req *proto.StreamRequest, stream proto.G
 
 // StreamChannels implements the StreamChannels RPC method
 func (s *GoFlowServer) StreamChannels(req *proto.StreamRequest, stream proto.GoFlowService_StreamChannelsServer) error {
+	fmt.Printf("[Server] Starting channel stream for new client\n")
 	updates := make(chan interface{}, 100)
 	clientID := time.Now().String()
 
@@ -116,7 +128,10 @@ func (s *GoFlowServer) StreamChannels(req *proto.StreamRequest, stream proto.GoF
 	s.clients["channel_"+clientID] = append(s.clients["channel_"+clientID], updates)
 	s.clientsMu.Unlock()
 
+	fmt.Printf("[Server] Client registered with ID: channel_%s\n", clientID)
+
 	defer func() {
+		fmt.Printf("[Server] Cleaning up channel stream for client: %s\n", clientID)
 		s.clientsMu.Lock()
 		delete(s.clients, "channel_"+clientID)
 		s.clientsMu.Unlock()
@@ -124,12 +139,17 @@ func (s *GoFlowServer) StreamChannels(req *proto.StreamRequest, stream proto.GoF
 	}()
 
 	// Send initial state
-	for _, info := range s.channelMonitor.GetAllChannels() {
+	initialChannels := s.channelMonitor.GetAllChannels()
+	fmt.Printf("[Server] Sending initial state: %d channels\n", len(initialChannels))
+	
+	for _, info := range initialChannels {
 		update := &proto.ChannelUpdate{
 			Id:         info.ID,
 			BufferSize: int32(info.BufferSize),
 			IsClosed:   info.Closed,
 		}
+		fmt.Printf("[Server] Sending channel update - ID: %d, BufferSize: %d, IsClosed: %v\n", 
+			info.ID, info.BufferSize, info.Closed)
 		if err := stream.Send(update); err != nil {
 			return s.handleError(err, "Failed to send channel update")
 		}
@@ -143,6 +163,8 @@ func (s *GoFlowServer) StreamChannels(req *proto.StreamRequest, stream proto.GoF
 				BufferSize: int32(info.BufferSize),
 				IsClosed:   info.Closed,
 			}
+			fmt.Printf("[Server] Streaming channel update - ID: %d, BufferSize: %d, IsClosed: %v\n", 
+				info.ID, info.BufferSize, info.Closed)
 			if err := stream.Send(protoUpdate); err != nil {
 				return s.handleError(err, "Failed to send channel update")
 			}
@@ -154,6 +176,7 @@ func (s *GoFlowServer) StreamChannels(req *proto.StreamRequest, stream proto.GoF
 
 // StreamDeadlocks implements the StreamDeadlocks RPC method
 func (s *GoFlowServer) StreamDeadlocks(req *proto.StreamRequest, stream proto.GoFlowService_StreamDeadlocksServer) error {
+	fmt.Printf("[Server] Starting deadlock stream for new client\n")
 	updates := make(chan interface{}, 100)
 	clientID := time.Now().String()
 
@@ -162,7 +185,10 @@ func (s *GoFlowServer) StreamDeadlocks(req *proto.StreamRequest, stream proto.Go
 	s.clients["deadlock_"+clientID] = append(s.clients["deadlock_"+clientID], updates)
 	s.clientsMu.Unlock()
 
+	fmt.Printf("[Server] Client registered with ID: deadlock_%s\n", clientID)
+
 	defer func() {
+		fmt.Printf("[Server] Cleaning up deadlock stream for client: %s\n", clientID)
 		s.clientsMu.Lock()
 		delete(s.clients, "deadlock_"+clientID)
 		s.clientsMu.Unlock()
@@ -188,6 +214,8 @@ func (s *GoFlowServer) StreamDeadlocks(req *proto.StreamRequest, stream proto.Go
 				InvolvedGoroutines: involvedGoroutines,
 				InvolvedChannels:   involvedChannels,
 			}
+			fmt.Printf("[Server] Streaming deadlock alert - DetectedAt: %d, CycleDetails: %s, InvolvedGoroutines: %v, InvolvedChannels: %v\n", 
+				info.DetectedAt.Unix(), info.CycleDetails, involvedGoroutines, involvedChannels)
 			if err := stream.Send(alert); err != nil {
 				return s.handleError(err, "Failed to send deadlock alert")
 			}
@@ -202,30 +230,39 @@ func (s *GoFlowServer) handleGoroutineUpdate(info runtime.GoroutineInfo) {
 	s.clientsMu.RLock()
 	defer s.clientsMu.RUnlock()
 
-	for _, client := range s.clients["goroutine_"+time.Now().String()] {
-		select {
-		case client <- info:
-		default:
-			// Skip if client buffer is full
+	// Send update to all goroutine clients
+	for clientID, channels := range s.clients {
+		if strings.HasPrefix(clientID, "goroutine_") {
+			for _, ch := range channels {
+				select {
+				case ch <- info:
+					fmt.Printf("[Server] Sent goroutine update to client %s\n", clientID)
+				default:
+					fmt.Printf("[Server] Warning: Goroutine buffer full for client %s\n", clientID)
+				}
+			}
 		}
 	}
 }
 
 // handleChannelUpdate handles channel update events
 func (s *GoFlowServer) handleChannelUpdate(event runtime.ChannelEvent) {
+	fmt.Printf("[Server] Channel Event - ID: %d, Operation: %s, Goroutine: %d, Timestamp: %v\n",
+		event.ChannelID, event.Operation, event.GoroutineID, event.Timestamp)
+	
 	s.clientsMu.RLock()
 	defer s.clientsMu.RUnlock()
 
-	info, exists := s.channelMonitor.GetChannelInfo(event.ChannelID)
-	if !exists {
-		return
-	}
-
-	for _, client := range s.clients["channel_"+time.Now().String()] {
-		select {
-		case client <- *info:
-		default:
-			// Skip if client buffer is full
+	for clientID, channels := range s.clients {
+		if strings.HasPrefix(clientID, "channel_") {
+			for _, ch := range channels {
+				select {
+				case ch <- event:
+					fmt.Printf("[Server] Sent channel event to client %s\n", clientID)
+				default:
+					fmt.Printf("[Server] Warning: Channel buffer full for client %s\n", clientID)
+				}
+			}
 		}
 	}
 }
