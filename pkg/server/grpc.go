@@ -1,12 +1,15 @@
 package server
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/knakul853/goflow/api/proto"
 	"github.com/knakul853/goflow/pkg/analyzer"
+	"github.com/knakul853/goflow/pkg/errors"
 	"github.com/knakul853/goflow/pkg/runtime"
+	"github.com/knakul853/goflow/pkg/storage"
 )
 
 // GoFlowServer implements the GoFlow gRPC service
@@ -17,6 +20,8 @@ type GoFlowServer struct {
 	deadlockDetector *analyzer.DeadlockDetector
 	clientsMu        sync.RWMutex
 	clients          map[string][]chan interface{}
+	sessionStore     *storage.SessionStore
+	debugServer      *DebugServer
 }
 
 // NewGoFlowServer creates a new instance of GoFlowServer
@@ -26,11 +31,24 @@ func NewGoFlowServer(gt *runtime.GoroutineTracker, cm *runtime.ChannelMonitor, d
 		channelMonitor:   cm,
 		deadlockDetector: dd,
 		clients:          make(map[string][]chan interface{}),
+		sessionStore:     storage.NewSessionStore(),
+		debugServer:      NewDebugServer(6060), // Start pprof on port 6060
 	}
 
 	// Set up event handlers
 	gt.OnGoroutineUpdate(server.handleGoroutineUpdate)
 	cm.Subscribe(server.handleChannelUpdate)
+
+	// Start debug server
+	go func() {
+		if err := server.debugServer.Start(); err != nil {
+			// Log error but don't crash the server
+			fmt.Printf("Debug server error: %v\n", err)
+		}
+	}()
+
+	// Start session cleanup
+	go server.cleanupSessions()
 
 	return server
 }
@@ -64,7 +82,7 @@ func (s *GoFlowServer) StreamGoroutines(req *proto.StreamRequest, stream proto.G
 			Stack:        info.Stack,
 		}
 		if err := stream.Send(update); err != nil {
-			return err
+			return s.handleError(err, "Failed to send goroutine update")
 		}
 	}
 
@@ -80,7 +98,7 @@ func (s *GoFlowServer) StreamGoroutines(req *proto.StreamRequest, stream proto.G
 				Stack:        info.Stack,
 			}
 			if err := stream.Send(protoUpdate); err != nil {
-				return err
+				return s.handleError(err, "Failed to send goroutine update")
 			}
 		}
 	}
@@ -113,7 +131,7 @@ func (s *GoFlowServer) StreamChannels(req *proto.StreamRequest, stream proto.GoF
 			IsClosed:   info.Closed,
 		}
 		if err := stream.Send(update); err != nil {
-			return err
+			return s.handleError(err, "Failed to send channel update")
 		}
 	}
 
@@ -126,7 +144,7 @@ func (s *GoFlowServer) StreamChannels(req *proto.StreamRequest, stream proto.GoF
 				IsClosed:   info.Closed,
 			}
 			if err := stream.Send(protoUpdate); err != nil {
-				return err
+				return s.handleError(err, "Failed to send channel update")
 			}
 		}
 	}
@@ -171,7 +189,7 @@ func (s *GoFlowServer) StreamDeadlocks(req *proto.StreamRequest, stream proto.Go
 				InvolvedChannels:   involvedChannels,
 			}
 			if err := stream.Send(alert); err != nil {
-				return err
+				return s.handleError(err, "Failed to send deadlock alert")
 			}
 		}
 	}
@@ -210,4 +228,20 @@ func (s *GoFlowServer) handleChannelUpdate(event runtime.ChannelEvent) {
 			// Skip if client buffer is full
 		}
 	}
+}
+
+// cleanupSessions periodically removes expired sessions
+func (s *GoFlowServer) cleanupSessions() {
+	ticker := time.NewTicker(10 * time.Minute)
+	for range ticker.C {
+		s.sessionStore.CleanupExpiredSessions(30 * time.Minute)
+	}
+}
+
+// handleError wraps errors with stack trace and context
+func (s *GoFlowServer) handleError(err error, message string) error {
+	if err == nil {
+		return nil
+	}
+	return errors.Wrap(err, message)
 }
