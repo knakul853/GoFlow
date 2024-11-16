@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package goflow;
+
+option go_package = "github.com/knakul853/goflow/api/proto";
+
+// GoFlow service definition
+service GoFlowService {
+  // Stream goroutine updates
+  rpc StreamGoroutines(StreamRequest) returns (stream GoroutineUpdate) {}
+  // Stream channel updates
+  rpc StreamChannels(StreamRequest) returns (stream ChannelUpdate) {}
+  // Get deadlock alerts
+  rpc StreamDeadlocks(StreamRequest) returns (stream DeadlockAlert) {}
+}
+
+// Empty request for streaming
+message StreamRequest {}
+
+// Goroutine update information
+message GoroutineUpdate {
+  uint64 id = 1;
+  string state = 2;
+  string function_name = 3;
+  int64 created_at = 4;  // Unix timestamp
+  uint64 parent_id = 5;
+  bytes stack = 6;
+}
+
+// Channel update information
+message ChannelUpdate {
+  uint64 id = 1;
+  int32 buffer_size = 2;
+  int32 buffer_used = 3;
+  bool is_closed = 4;
+  repeated ChannelOperation recent_operations = 5;
+}
+
+// Channel operation details
+message ChannelOperation {
+  uint64 channel_id = 1;
+  string operation_type = 2;  // "send", "receive", or "close"
+  uint64 goroutine_id = 3;
+  int64 timestamp = 4;  // Unix timestamp
+  bool blocked = 5;
+}
+
+// Deadlock alert information
+message DeadlockAlert {
+  int64 detected_at = 1;  // Unix timestamp
+  string cycle_details = 2;
+  repeated uint64 involved_goroutines = 3;
+  repeated uint64 involved_channels = 4;
+}

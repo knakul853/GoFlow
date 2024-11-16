@@ -1,0 +1,11 @@
+server:
+  port: 8080
+  host: localhost
+
+logging:
+  level: info
+  format: json
+
+monitoring:
+  interval: 1s
+  maxGoroutines: 1000
